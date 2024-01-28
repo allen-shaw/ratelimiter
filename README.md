@@ -1,4 +1,4 @@
-# ratelimiter
+# Rate Limiter
 A solution for Global Distributed Client Side Rate Limiting
 
 ## How To Use
