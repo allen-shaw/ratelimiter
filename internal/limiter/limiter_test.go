@@ -52,6 +52,72 @@ func TestNewLimiter(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestLimter_AllowN(t *testing.T) {
+func TestLimter_NotAllowN(t *testing.T) {
+	var (
+		name  = "test1"
+		rdb   = newRedisClient()
+		limit = float64(5)
+		burst = 10
+	)
 
+	fmt.Println("limit", limit)
+	limiter := NewLimiter(name, rdb, limit, burst)
+	ctx := context.Background()
+	ok, err := limiter.AllowN(ctx, time.Now(), 11)
+	assert.Nil(t, err)
+	assert.False(t, ok)
+
+	val, err := rdb.Get(ctx, limiter.tokenKey).Int()
+	assert.Nil(t, err)
+	t.Logf("val: %d", val)
+}
+
+func TestTimeNow(t *testing.T) {
+	fmt.Println(time.Now().Unix())
+}
+
+func TestLimiter_AllowAndWait(t *testing.T) {
+	rdb := newRedisClient()
+	limiters := make([]*Limiter, 0)
+	for range []int{1, 2, 3, 4, 5} {
+		limiters = append(limiters, NewLimiter("test", rdb, float64(5), 11))
+	}
+
+	okCount := 0
+	for _, lim := range limiters {
+		ok, err := lim.AllowN(context.Background(), time.Now(), 3)
+		if err != nil {
+			panic(err)
+		}
+		if ok {
+			okCount++
+		}
+	}
+
+	assert.Equal(t, 3, okCount)
+	assert.Equal(t, 2, redisGet(rdb, "test_token"))
+
+	time.Sleep(2 * time.Second)
+
+	for _, lim := range limiters {
+		ok, err := lim.AllowN(context.Background(), time.Now(), 2)
+		if err != nil {
+			panic(err)
+		}
+		if ok {
+			okCount++
+		}
+	}
+
+	assert.Equal(t, 8, okCount)
+	assert.Equal(t, 1, redisGet(rdb, "test_token"))
+
+}
+
+func redisGet(r *redis.Client, key string) int {
+	val, err := r.Get(context.Background(), key).Int()
+	if err != nil {
+		panic(err)
+	}
+	return val
 }

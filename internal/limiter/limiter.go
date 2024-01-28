@@ -78,6 +78,7 @@ func (l *Limiter) WaitN(ctx context.Context, n int) error {
 }
 
 func (l *Limiter) reserveN(ctx context.Context, now time.Time, n int) (bool, error) {
+
 	ok, err := l.script.Run(ctx,
 		l.rdb,
 		[]string{l.tokenKey, l.timestampKey},
@@ -87,6 +88,9 @@ func (l *Limiter) reserveN(ctx context.Context, now time.Time, n int) (bool, err
 		n,
 	).Bool()
 	if err != nil {
+		if err == redis.Nil {
+			return false, nil
+		}
 		return false, fmt.Errorf("run script: %v", err)
 	}
 
