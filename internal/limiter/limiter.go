@@ -3,6 +3,7 @@ package limiter
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 )
+
+const InfDuration = time.Duration(math.MaxInt)
 
 var (
 	//go:embed script.lua
@@ -74,11 +77,30 @@ func (l *Limiter) Wait(ctx context.Context) error {
 
 // WaitN implements ratelimiter.Limiter.
 func (l *Limiter) WaitN(ctx context.Context, n int) error {
-	panic("unimplemented")
+	// 如果 ctx 已经结束了也不用等了
+	delay := time.Duration(0)
+	timer := time.NewTimer(delay)
+	// 等待
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			ok, err := l.reserveN(ctx, time.Now(), n)
+			if err != nil {
+				return fmt.Errorf("wait reserveN: %v", err)
+			}
+			if ok {
+				return nil
+			}
+			// fmt.Println("1:", redisGet(l.rdb, l.tokenKey), redisGet(l.rdb, l.timestampKey))
+			d := time.Duration(n/int(l.limit)+1) * time.Second
+			timer.Reset(d)
+		}
+	}
 }
 
 func (l *Limiter) reserveN(ctx context.Context, now time.Time, n int) (bool, error) {
-
 	ok, err := l.script.Run(ctx,
 		l.rdb,
 		[]string{l.tokenKey, l.timestampKey},
@@ -95,4 +117,12 @@ func (l *Limiter) reserveN(ctx context.Context, now time.Time, n int) (bool, err
 	}
 
 	return ok, nil
+}
+
+func redisGet(r *redis.Client, key string) int {
+	val, err := r.Get(context.Background(), key).Int()
+	if err != nil {
+		panic(err)
+	}
+	return val
 }

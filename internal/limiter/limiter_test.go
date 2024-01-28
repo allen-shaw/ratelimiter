@@ -114,10 +114,49 @@ func TestLimiter_AllowAndWait(t *testing.T) {
 
 }
 
-func redisGet(r *redis.Client, key string) int {
-	val, err := r.Get(context.Background(), key).Int()
-	if err != nil {
-		panic(err)
-	}
-	return val
+func TestLimiter_WaitN(t *testing.T) {
+	var (
+		name  = "test"
+		rdb   = newRedisClient()
+		limit = float64(5)
+		burst = 12
+	)
+
+	limiter := NewLimiter(name, rdb, limit, burst)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := limiter.WaitN(ctx, 11)
+	assert.Nil(t, err)
+	assert.Equal(t, 1, redisGet(rdb, "test_token"))
+
+	startTime := time.Now()
+
+	err = limiter.WaitN(ctx, 11)
+	assert.Nil(t, err)
+	assert.Equal(t, 1, redisGet(rdb, "test_token"))
+
+	endTime := time.Now()
+	waitSec := endTime.Sub(startTime).Seconds()
+	fmt.Println("wait_sec", waitSec)
+}
+
+func TestLimiter_WaitCancel(t *testing.T) {
+	var (
+		name  = "test"
+		rdb   = newRedisClient()
+		limit = float64(5)
+		burst = 12
+	)
+
+	limiter := NewLimiter(name, rdb, limit, burst)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	err := limiter.WaitN(ctx, 11)
+	assert.Nil(t, err)
+	assert.Equal(t, 1, redisGet(rdb, "test_token"))
+
+	err = limiter.WaitN(ctx, 11)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
